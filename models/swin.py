@@ -5,7 +5,11 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 import torch.utils.checkpoint as checkpoint
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+
+try:
+    from timm.layers import DropPath, to_2tuple, trunc_normal_
+except ModuleNotFoundError:
+    from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 
 class Mlp(nn.Module):

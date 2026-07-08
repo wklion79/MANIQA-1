@@ -1,10 +1,32 @@
-__pycache__
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
 
-Dis/
-
-*.zip
+# Model files
+*.pth
 *.pt
+*.ckpt
+checkpoints/
+weights/
+outputs/
+results/
+logs/
 
-output/
+# Datasets
+datasets/
+dataset/
+PIPAL/
+PIPAL22/
+KADID-10K/
+kadid10k/
+KonIQ-10K/
+koniq10k/
 
-test_images/
+# System files
+_MACOSX/
+__MACOSX/
+._*
+.DS_Store
+Thumbs.db

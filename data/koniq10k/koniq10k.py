@@ -37,7 +37,12 @@ class Koniq10k(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         d_img_name = self.data_dict['d_img_list'][idx]
-        d_img = cv2.imread(os.path.join(self.dis_path, d_img_name), cv2.IMREAD_COLOR)
+        image_path = os.path.join(self.dis_path, d_img_name)
+        d_img = cv2.imread(image_path, cv2.IMREAD_COLOR)
+
+        if d_img is None or d_img.size == 0:
+            raise FileNotFoundError(f"Could not read image: {image_path}")
+
         d_img = cv2.resize(d_img, (224, 224), interpolation=cv2.INTER_CUBIC)
         d_img = cv2.cvtColor(d_img, cv2.COLOR_BGR2RGB)
         d_img = np.array(d_img).astype('float32') / 255

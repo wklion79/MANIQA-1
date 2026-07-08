@@ -18,7 +18,9 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+# Leave CUDA selection to the runtime unless a specific GPU is explicitly needed.
+# On CPU-only systems, the training code will fall back automatically.
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '0')
 
 
 def setup_seed(seed):
@@ -45,6 +47,10 @@ def set_logging(config):
     )
 
 
+def get_device():
+    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 def train_epoch(epoch, net, criterion, optimizer, scheduler, train_loader):
     losses = []
     net.train()
@@ -52,11 +58,14 @@ def train_epoch(epoch, net, criterion, optimizer, scheduler, train_loader):
     pred_epoch = []
     labels_epoch = []
     
+    device = get_device()
+    net.to(device)
+
     for data in tqdm(train_loader):
-        x_d = data['d_img_org'].cuda()
+        x_d = data['d_img_org'].to(device)
         labels = data['score']
 
-        labels = torch.squeeze(labels.type(torch.FloatTensor)).cuda()  
+        labels = torch.squeeze(labels.type(torch.FloatTensor)).to(device)
         pred_d = net(x_d)
 
         optimizer.zero_grad()
@@ -91,12 +100,15 @@ def eval_epoch(config, epoch, net, criterion, test_loader):
         pred_epoch = []
         labels_epoch = []
 
+        device = get_device()
+        net.to(device)
+
         for data in tqdm(test_loader):
             pred = 0
             for i in range(config.num_avg_val):
-                x_d = data['d_img_org'].cuda()
+                x_d = data['d_img_org'].to(device)
                 labels = data['score']
-                labels = torch.squeeze(labels.type(torch.FloatTensor)).cuda()
+                labels = torch.squeeze(labels.type(torch.FloatTensor)).to(device)
                 x_d = five_point_crop(i, d_img=x_d, config=config)
                 pred += net(x_d)
 
@@ -136,18 +148,18 @@ if __name__ == '__main__':
         "dataset_name": "koniq10k",
 
         # PIPAL
-        "train_dis_path": "/mnt/IQA_dataset/PIPAL22/Train_dis/",
-        "val_dis_path": "/mnt/IQA_dataset/PIPAL22/Val_dis/",
-        "pipal22_train_label": "./data/PIPAL22/pipal22_train.txt",
-        "pipal22_val_txt_label": "./data/PIPAL22/pipal22_val.txt",
+        "train_dis_path": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\PIPAL22\\Train\\Train_dis",
+        "val_dis_path": "C:\\Users\\BTREEE\\work\\MANIQA\\datasets\\PIPAL22\\Val_dis",
+        "pipal22_train_label": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\PIPAL22\\Train_Label",
+        "pipal22_val_txt_label": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\PIPAL22\\pipal21_val.txt",
 
         # KADID-10K
-        "kadid10k_path": "/mnt/IQA_dataset/kadid10k/images/",
-        "kadid10k_label": "./data/kadid10k/kadid10k_label.txt",
+        "kadid10k_path": "C:\\Users\\BTREEE\\work\\MANIQA\\datasets\\kadid10k",
+        "kadid10k_label": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\kadid10k\\kadid10k_label.txt",
 
         # KONIQ-10K
-        "koniq10k_path": "/mnt/IQA_dataset/1024x768/",
-        "koniq10k_label": "./data/koniq10k/koniq10k_label.txt",
+        "koniq10k_path": "C:\\Users\\BTREEE\\work\\MANIQA\\datasets\\koniq10k\\1024x768",
+        "koniq10k_label": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\koniq10k\\koniq10k_label.txt",
         
         # optimization
         "batch_size": 8,
@@ -202,6 +214,12 @@ if __name__ == '__main__':
     
     if not os.path.exists(config.tensorboard_path):
         os.makedirs(config.tensorboard_path)
+
+    if config.dataset_name == 'koniq10k' and not os.path.exists(config.koniq10k_path):
+        raise FileNotFoundError(
+            f"KONIQ dataset path does not exist: {config.koniq10k_path}. "
+            "Please update 'koniq10k_path' in train_maniqa.py to the folder that contains the KONIQ images."
+        )
 
     set_logging(config)
     logging.info(config)
@@ -275,8 +293,10 @@ if __name__ == '__main__':
 
     logging.info('{} : {} [M]'.format('#Params', sum(map(lambda x: x.numel(), net.parameters())) / 10 ** 6))
 
-    net = nn.DataParallel(net)
-    net = net.cuda()
+    device = get_device()
+    if torch.cuda.is_available():
+        net = nn.DataParallel(net)
+    net = net.to(device)
 
     # loss function
     criterion = torch.nn.MSELoss()
