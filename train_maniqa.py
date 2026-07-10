@@ -5,6 +5,7 @@ import logging
 import time
 import torch.nn as nn
 import random
+import argparse
 
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -51,7 +52,50 @@ def get_device():
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def train_epoch(epoch, net, criterion, optimizer, scheduler, train_loader):
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train MANIQA with selectable crop/view strategy.")
+    parser.add_argument(
+        "--crop_mode",
+        choices=["base_random", "global_fixed5"],
+        default=None,
+        help="Input view strategy. base_random uses one random crop; global_fixed5 uses global resize plus five fixed local crops."
+    )
+    parser.add_argument(
+        "--crop_fusion",
+        choices=["mean", "min"],
+        default=None,
+        help="How to fuse the five local crop scores in global_fixed5 mode."
+    )
+    parser.add_argument(
+        "--local_weight",
+        type=float,
+        default=None,
+        help="Weight for the local score in global_fixed5 mode. Final score = (1-w)*global + w*local."
+    )
+    return parser.parse_args()
+
+
+def predict_batch(config, net, data, device):
+    if config.crop_mode == "global_fixed5":
+        x_global = data['d_img_global'].to(device)
+        x_local = data['d_img_local'].to(device)
+        b, n, c, h, w = x_local.shape
+
+        pred_global = net(x_global)
+        pred_local = net(x_local.view(b * n, c, h, w)).view(b, n)
+
+        if config.crop_fusion == "min":
+            pred_local = pred_local.min(dim=1).values
+        else:
+            pred_local = pred_local.mean(dim=1)
+
+        return (1 - config.local_weight) * pred_global + config.local_weight * pred_local
+
+    x_d = data['d_img_org'].to(device)
+    return net(x_d)
+
+
+def train_epoch(config, epoch, net, criterion, optimizer, scheduler, train_loader):
     losses = []
     net.train()
     # save data for one epoch
@@ -62,11 +106,10 @@ def train_epoch(epoch, net, criterion, optimizer, scheduler, train_loader):
     net.to(device)
 
     for data in tqdm(train_loader):
-        x_d = data['d_img_org'].to(device)
         labels = data['score']
 
         labels = torch.squeeze(labels.type(torch.FloatTensor)).to(device)
-        pred_d = net(x_d)
+        pred_d = predict_batch(config, net, data, device)
 
         optimizer.zero_grad()
         loss = criterion(torch.squeeze(pred_d), labels)
@@ -104,15 +147,9 @@ def eval_epoch(config, epoch, net, criterion, test_loader):
         net.to(device)
 
         for data in tqdm(test_loader):
-            pred = 0
-            for i in range(config.num_avg_val):
-                x_d = data['d_img_org'].to(device)
-                labels = data['score']
-                labels = torch.squeeze(labels.type(torch.FloatTensor)).to(device)
-                x_d = five_point_crop(i, d_img=x_d, config=config)
-                pred += net(x_d)
-
-            pred /= config.num_avg_val
+            labels = data['score']
+            labels = torch.squeeze(labels.type(torch.FloatTensor)).to(device)
+            pred = predict_batch(config, net, data, device)
             # compute loss
             loss = criterion(torch.squeeze(pred), labels)
             losses.append(loss.item())
@@ -132,6 +169,8 @@ def eval_epoch(config, epoch, net, criterion, test_loader):
 
 
 if __name__ == '__main__':
+    args = parse_args()
+
     cpu_num = 1
     os.environ['OMP_NUM_THREADS'] = str(cpu_num)
     os.environ['OPENBLAS_NUM_THREADS'] = str(cpu_num)
@@ -162,21 +201,24 @@ if __name__ == '__main__':
         "koniq10k_label": "C:\\Users\\BTREEE\\work\\MANIQA\\data\\koniq10k\\koniq10k_label.txt",
         
         # optimization
-        "batch_size": 8,
+        "batch_size": 4,
         "learning_rate": 1e-5,
         "weight_decay": 1e-5,
-        "n_epoch": 300,
-        "val_freq": 1,
-        "T_max": 50,
+        "n_epoch": 10,
+        "val_freq": 2,
+        "T_max": 600,
         "eta_min": 0,
         "num_avg_val": 1, # if training koniq10k, num_avg_val is set to 1
-        "num_workers": 8,
+        "num_workers": 0,
         
         # data
         "split_seed": 20,
-        "train_keep_ratio": 1.0,
-        "val_keep_ratio": 1.0,
+        "train_keep_ratio": 0.03,
+        "val_keep_ratio": 0.05,
         "crop_size": 224,
+        "crop_mode": "base_random", # "base_random" or "global_fixed5"
+        "crop_fusion": "mean", # "mean" or "min" for global_fixed5 local scores
+        "local_weight": 0.5,
         "prob_aug": 0.7,
 
         # model
@@ -192,14 +234,30 @@ if __name__ == '__main__':
         "scale": 0.8,
         
         # load & save checkpoint
-        "model_name": "koniq10k-base_s20",
+        "model_name": "koniq10k-quick_s20",
         "type_name": "Koniq10k",
         "ckpt_path": "./output/models/",               # directory for saving checkpoint
         "log_path": "./output/log/",
         "log_file": ".log",
         "tensorboard_path": "./output/tensorboard/"
     })
+
+    if args.crop_mode is not None:
+        config.crop_mode = args.crop_mode
+    if args.crop_fusion is not None:
+        config.crop_fusion = args.crop_fusion
+    if args.local_weight is not None:
+        config.local_weight = args.local_weight
     
+    if config.dataset_name == 'koniq10k':
+        config.model_name = "{}_{}".format(config.model_name, config.crop_mode)
+        if config.crop_mode == "global_fixed5":
+            config.model_name = "{}_{}_lw{}".format(
+                config.model_name,
+                config.crop_fusion,
+                str(config.local_weight).replace(".", "p")
+            )
+
     config.log_file = config.model_name + ".log"
     config.tensorboard_path = os.path.join(config.tensorboard_path, config.type_name)
     config.tensorboard_path = os.path.join(config.tensorboard_path, config.model_name)
@@ -259,21 +317,44 @@ if __name__ == '__main__':
         pass
     
     # data load
+    dataset_kwargs = {}
+    if config.dataset_name == 'koniq10k':
+        dataset_kwargs = {
+            "crop_mode": config.crop_mode,
+            "crop_size": config.crop_size
+        }
+
+    train_transform = transforms.Compose([
+        RandCrop(patch_size=config.crop_size),
+        Normalize(0.5, 0.5),
+        RandHorizontalFlip(prob_aug=config.prob_aug),
+        ToTensor()
+    ])
+    val_transform = transforms.Compose([
+        RandCrop(patch_size=config.crop_size),
+        Normalize(0.5, 0.5),
+        ToTensor()
+    ])
+
+    if config.crop_mode == "global_fixed5":
+        train_transform = None
+        val_transform = None
+
     train_dataset = Dataset(
         dis_path=dis_train_path,
         txt_file_name=label_train_path,
         list_name=train_name,
-        transform=transforms.Compose([RandCrop(patch_size=config.crop_size), 
-            Normalize(0.5, 0.5), RandHorizontalFlip(prob_aug=config.prob_aug), ToTensor()]),
-        keep_ratio=config.train_keep_ratio
+        transform=train_transform,
+        keep_ratio=config.train_keep_ratio,
+        **dataset_kwargs
     )
     val_dataset = Dataset(
         dis_path=dis_val_path,
         txt_file_name=label_val_path,
         list_name=val_name,
-        transform=transforms.Compose([RandCrop(patch_size=config.crop_size),
-            Normalize(0.5, 0.5), ToTensor()]),
-        keep_ratio=config.val_keep_ratio
+        transform=val_transform,
+        keep_ratio=config.val_keep_ratio,
+        **dataset_kwargs
     )
 
     logging.info('number of train scenes: {}'.format(len(train_dataset)))
@@ -315,7 +396,7 @@ if __name__ == '__main__':
     for epoch in range(0, config.n_epoch):
         start_time = time.time()
         logging.info('Running training epoch {}'.format(epoch + 1))
-        loss_val, rho_s, rho_p = train_epoch(epoch, net, criterion, optimizer, scheduler, train_loader)
+        loss_val, rho_s, rho_p = train_epoch(config, epoch, net, criterion, optimizer, scheduler, train_loader)
 
         writer.add_scalar("Train_loss", loss_val, epoch)
         writer.add_scalar("SRCC", rho_s, epoch)
@@ -339,7 +420,8 @@ if __name__ == '__main__':
                 # save weights
                 model_name = "epoch{}.pt".format(epoch + 1)
                 model_save_path = os.path.join(config.ckpt_path, model_name)
-                torch.save(net.module.state_dict(), model_save_path)
+                model_to_save = net.module if isinstance(net, nn.DataParallel) else net
+                torch.save(model_to_save.state_dict(), model_save_path)
                 logging.info('Saving weights and model of epoch{}, SRCC:{}, PLCC:{}'.format(epoch + 1, best_srocc, best_plcc))
         
         logging.info('Epoch {} done. Time: {:.2}min'.format(epoch + 1, (time.time() - start_time) / 60))
