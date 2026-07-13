@@ -347,7 +347,7 @@ if __name__ == '__main__':
         "eval_crop_repeats": 5,
         "train_keep_ratio": 0.01,
         "val_keep_ratio": 0.02,
-        "eval_protocol": "test",
+        "eval_protocol": "validation",
         "crop_size": 224,
         "crop_mode": "base_random", # "base_random" or "global_fixed5"
         "crop_fusion": "mean", # "mean" or "min" for global_fixed5 local scores
