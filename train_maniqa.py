@@ -336,7 +336,7 @@ if __name__ == '__main__':
         "weight_decay": 1e-5,
         "n_epoch": 4,
         "val_freq": 2,
-        "T_max": 160,
+        "T_max": 320,
         "eta_min": 0,
         "num_avg_val": 1, # if training koniq10k, num_avg_val is set to 1
         "num_workers": 0,
@@ -345,8 +345,8 @@ if __name__ == '__main__':
         "split_seed": 20,
         "eval_crop_seed": 2026,
         "eval_crop_repeats": 5,
-        "train_keep_ratio": 0.01,
-        "val_keep_ratio": 0.02,
+        "train_keep_ratio": 0.02,
+        "val_keep_ratio": 0.05,
         "eval_protocol": "test",
         "crop_size": 224,
         "crop_mode": "base_random", # "base_random" or "global_fixed5"

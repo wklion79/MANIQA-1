@@ -17,20 +17,21 @@ intermediate source state was not committed while the experiment was running.
 
 ## Final Train/Test Protocol
 
-The final pilot uses a deterministic 80/20 split. With the quick-run ratios, it
-uses 80 training images and 40 held-out test images. The test split is evaluated
+The final pilot uses a deterministic 80/20 split. With the final reduced-run
+ratios, it selects 161 training images (160 processed per epoch with batch size 2
+and `drop_last=True`) and 100 held-out test images. The test split is evaluated
 only after the final fixed epoch and is never used for checkpoint selection.
 
 Base random-crop run:
 
 ```powershell
-& .\.venv\Scripts\python.exe .\train_maniqa.py --eval_protocol test --crop_mode base_random --batch_size 2 --n_epoch 4 --train_keep_ratio 0.01 --val_keep_ratio 0.02 --split_seed 20 --eval_crop_repeats 5
+& .\.venv\Scripts\python.exe .\train_maniqa.py --eval_protocol test --crop_mode base_random --batch_size 2 --n_epoch 4 --train_keep_ratio 0.02 --val_keep_ratio 0.05 --split_seed 20 --eval_crop_repeats 5
 ```
 
 Global plus five fixed local crops:
 
 ```powershell
-& .\.venv\Scripts\python.exe .\train_maniqa.py --eval_protocol test --crop_mode global_fixed5 --crop_fusion mean --local_weight 0.5 --batch_size 2 --n_epoch 4 --train_keep_ratio 0.01 --val_keep_ratio 0.02 --split_seed 20
+& .\.venv\Scripts\python.exe .\train_maniqa.py --eval_protocol test --crop_mode global_fixed5 --crop_fusion mean --local_weight 0.5 --batch_size 2 --n_epoch 4 --train_keep_ratio 0.02 --val_keep_ratio 0.05 --split_seed 20
 ```
 
 Each run writes its configuration, exact train/test manifests, per-image test
