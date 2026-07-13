@@ -6,22 +6,26 @@ import cv2
 
 class Koniq10k(torch.utils.data.Dataset):
     def __init__(self, dis_path, txt_file_name, list_name, transform, keep_ratio,
-                 crop_mode="base_random", crop_size=224):
+                 crop_mode="base_random", crop_size=224, score_range=None,
+                 horizontal_flip_prob=0.0):
         super(Koniq10k, self).__init__()
         self.dis_path = dis_path
         self.txt_file_name = txt_file_name
         self.transform = transform
         self.crop_mode = crop_mode
         self.crop_size = crop_size
+        self.horizontal_flip_prob = horizontal_flip_prob
 
-        dis_files_data, score_data = [], []
+        score_by_file = {}
         with open(self.txt_file_name, 'r') as listFile:
             for line in listFile:
                 dis, score = line.split()
-                if dis in list_name:
-                    score = float(score)
-                    dis_files_data.append(dis)
-                    score_data.append(score)
+                score_by_file[dis] = float(score)
+
+        # Preserve the seeded split order. Re-reading in label-file order would
+        # turn a reduced run into a biased "first N rows" subset.
+        dis_files_data = [dis for dis in list_name if dis in score_by_file]
+        score_data = [score_by_file[dis] for dis in dis_files_data]
 
         if 0 < keep_ratio < 1:
             keep_count = max(1, int(len(dis_files_data) * keep_ratio))
@@ -29,15 +33,21 @@ class Koniq10k(torch.utils.data.Dataset):
             score_data = score_data[:keep_count]
 
         # reshape score_list (1xn -> nx1)
-        score_data = np.array(score_data)
-        score_data = self.normalization(score_data)
+        score_data = np.array(score_data, dtype=np.float32)
+        score_data = self.normalization(score_data, score_range)
         score_data = list(score_data.astype('float').reshape(-1, 1))
 
         self.data_dict = {'d_img_list': dis_files_data, 'score_list': score_data}
 
-    def normalization(self, data):
-        range = np.max(data) - np.min(data)
-        return (data - np.min(data)) / range
+    def normalization(self, data, score_range=None):
+        if score_range is None:
+            score_min, score_max = np.min(data), np.max(data)
+        else:
+            score_min, score_max = score_range
+        score_span = score_max - score_min
+        if score_span <= 0:
+            raise ValueError("Score normalization range must be greater than zero.")
+        return (data - score_min) / score_span
 
     def __len__(self):
         return len(self.data_dict['d_img_list'])
@@ -83,6 +93,8 @@ class Koniq10k(torch.utils.data.Dataset):
         score = self.data_dict['score_list'][idx]
 
         if self.crop_mode == "global_fixed5":
+            if self.horizontal_flip_prob > 0 and np.random.random() < self.horizontal_flip_prob:
+                d_img = np.ascontiguousarray(d_img[:, ::-1])
             global_img = cv2.resize(
                 d_img,
                 (self.crop_size, self.crop_size),
@@ -92,7 +104,8 @@ class Koniq10k(torch.utils.data.Dataset):
             sample = {
                 'd_img_global': self._normalize_to_tensor(global_img),
                 'd_img_local': torch.stack([self._normalize_to_tensor(img) for img in local_imgs]),
-                'score': torch.from_numpy(score).type(torch.FloatTensor)
+                'score': torch.from_numpy(score).type(torch.FloatTensor),
+                'image_name': d_img_name
             }
             return sample
 
@@ -104,4 +117,5 @@ class Koniq10k(torch.utils.data.Dataset):
         }
         if self.transform:
             sample = self.transform(sample)
+        sample['image_name'] = d_img_name
         return sample

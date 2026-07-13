@@ -11,6 +11,7 @@ venv/
 checkpoints/
 weights/
 outputs/
+output/
 results/
 logs/
 
@@ -23,6 +24,10 @@ KADID-10K/
 kadid10k/
 KonIQ-10K/
 koniq10k/
+
+# Local diagnostic image sets (may contain benchmark-derived images)
+test_image_dataset/
+test_image_dataset_koniq10k/
 
 # System files
 _MACOSX/

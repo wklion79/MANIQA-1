@@ -42,7 +42,7 @@ def five_point_crop(idx, d_img, config):
 
 
 def split_dataset_koniq10k(txt_file_name, split_seed=20):
-    np.random.seed(split_seed)
+    rng = np.random.RandomState(split_seed)
     object_data = []
     with open(txt_file_name, 'r') as listFile:
         for line in listFile:
@@ -51,8 +51,7 @@ def split_dataset_koniq10k(txt_file_name, split_seed=20):
             if dis not in object_data:
                 object_data.append(dis)
     
-    np.random.shuffle(object_data)
-    np.random.seed(20)
+    rng.shuffle(object_data)
 
     l = len(object_data)
     train_name = object_data[:int(l * 0.8)]
@@ -147,12 +146,15 @@ class RandCrop(object):
         new_h = self.patch_size
         new_w = self.patch_size
         
-        # For koniq10k
+        if h < new_h or w < new_w:
+            raise ValueError(
+                "Image size ({}, {}) is smaller than crop size {}.".format(h, w, self.patch_size)
+            )
         if h == new_h and w == new_w:
             ret_d_img = d_img
         else:
-            top = np.random.randint(0, h - new_h)
-            left = np.random.randint(0, w - new_w)
+            top = np.random.randint(0, h - new_h + 1)
+            left = np.random.randint(0, w - new_w + 1)
             ret_d_img = d_img[:, top: top + new_h, left: left + new_w]
 
         sample = {
@@ -188,7 +190,8 @@ class RandHorizontalFlip(object):
         prob_lr = np.random.choice([1, 0], p=p_aug.ravel())
 
         if prob_lr > 0.5:
-            d_img = np.fliplr(d_img).copy()
+            # d_img is C x H x W, so horizontal flip is along the width axis.
+            d_img = d_img[:, :, ::-1].copy()
         
         sample = {
             'd_img_org': d_img,
